@@ -8,8 +8,16 @@ pub mod error;
 /// zbus handler.
 pub mod zbus_handler;
 
+/// Backend abstraction.
+pub mod backend;
+
 /// X11 handler.
+#[cfg(feature = "x11")]
 pub mod x11;
+
+/// Wayland handler.
+#[cfg(feature = "wayland")]
+pub mod wayland;
 
 /// Configuration.
 pub mod config;
@@ -20,6 +28,10 @@ pub mod notification;
 use crate::config::Config;
 use crate::error::Result;
 use crate::notification::Action;
+use crate::backend::Backend;
+#[cfg(feature = "wayland")]
+use crate::wayland::Wayland;
+#[cfg(feature = "x11")]
 use crate::x11::X11;
 use estimated_read_time::Options;
 use notification::{Manager, Notification, Urgency};
@@ -43,35 +55,36 @@ pub fn run() -> Result<()> {
     tracing::trace!("{:#?}", config);
     tracing::info!("starting runst with zbus");
 
-    let mut x11 = X11::init(None)?;
-    let window = x11.create_window(&config.global)?;
+    let mut backend = select_backend()?;
+    let window = backend.create_window(&config.global)?;
 
-    let x11 = Arc::new(x11);
+    let backend = Arc::new(backend);
     let window = Arc::new(window);
     let notifications = Manager::init();
 
     let (sender, receiver) = mpsc::channel();
 
     // Spawn X11 event handler thread
-    let x11_cloned = Arc::clone(&x11);
+    let backend_cloned = Arc::clone(&backend);
     let window_cloned = Arc::clone(&window);
     let config_cloned = Arc::clone(&config);
     let notifications_cloned = notifications.clone();
     let sender_cloned = sender.clone();
 
     thread::spawn(move || {
-        if let Err(e) = x11_cloned.handle_events(
+        let on_press = Arc::new(move |notification: &Notification| {
+            tracing::debug!("user input detected");
+            sender_cloned
+                .send(Action::Close(Some(notification.id)))
+                .expect("failed to send close action");
+        });
+        if let Err(e) = backend_cloned.handle_events(
             window_cloned,
             notifications_cloned,
             config_cloned,
-            move |notification| {
-                tracing::debug!("user input detected");
-                sender_cloned
-                    .send(Action::Close(Some(notification.id)))
-                    .expect("failed to send close action");
-            },
+            on_press,
         ) {
-            eprintln!("Failed to handle X11 events: {e}")
+            eprintln!("Failed to handle events: {e}")
         }
     });
 
@@ -155,7 +168,7 @@ pub fn run() -> Result<()> {
         sender.send(Action::Show(startup_notification))?;
     }
 
-    let x11_cloned = Arc::clone(&x11);
+    let backend_cloned = Arc::clone(&backend);
     loop {
         match receiver.recv()? {
             Action::Show(notification) => {
@@ -163,8 +176,8 @@ pub fn run() -> Result<()> {
                 let timeout = notification.expire_timeout.unwrap_or_else(|| {
                     let urgency_config = config.get_urgency_config(&notification.urgency);
                     Duration::from_secs(if urgency_config.auto_clear.unwrap_or(false) {
-                        notification
-                            .render_message(&window.template, urgency_config.text, 0)
+                        backend_cloned
+                            .render_message(&window, &notification, urgency_config.text, 0)
                             .map(|v| estimated_read_time::text(&v, &Options::default()).seconds())
                             .unwrap_or_default()
                     } else {
@@ -186,18 +199,18 @@ pub fn run() -> Result<()> {
                     });
                 }
                 notifications.add(notification);
-                x11_cloned.hide_window(&window)?;
-                x11_cloned.show_window(&window)?;
+                backend_cloned.hide_window(&window)?;
+                backend_cloned.show_window(&window)?;
             }
             Action::ShowLast => {
                 tracing::debug!("showing the last notification");
                 if notifications.count() == 0 {
                     continue;
                 } else if notifications.mark_next_as_unread() {
-                    x11_cloned.hide_window(&window)?;
-                    x11_cloned.show_window(&window)?;
+                    backend_cloned.hide_window(&window)?;
+                    backend_cloned.show_window(&window)?;
                 } else {
-                    x11_cloned.hide_window(&window)?;
+                    backend_cloned.hide_window(&window)?;
                 }
             }
             Action::Close(id) => {
@@ -208,16 +221,41 @@ pub fn run() -> Result<()> {
                     tracing::debug!("closing the last notification");
                     notifications.mark_last_as_read();
                 }
-                x11_cloned.hide_window(&window)?;
+                backend_cloned.hide_window(&window)?;
                 if notifications.get_unread_count() >= 1 {
-                    x11_cloned.show_window(&window)?;
+                    backend_cloned.show_window(&window)?;
                 }
             }
             Action::CloseAll => {
                 tracing::debug!("closing all notifications");
                 notifications.mark_all_as_read();
-                x11_cloned.hide_window(&window)?;
+                backend_cloned.hide_window(&window)?;
             }
         }
     }
+}
+
+#[cfg(all(feature = "wayland", feature = "x11"))]
+fn select_backend() -> Result<Box<dyn Backend>> {
+    if std::env::var_os("WAYLAND_DISPLAY").is_some() {
+        return Ok(Box::new(Wayland::init()?));
+    }
+    Ok(Box::new(X11::init(None)?))
+}
+
+#[cfg(all(feature = "wayland", not(feature = "x11")))]
+fn select_backend() -> Result<Box<dyn Backend>> {
+    Ok(Box::new(Wayland::init()?))
+}
+
+#[cfg(all(feature = "x11", not(feature = "wayland")))]
+fn select_backend() -> Result<Box<dyn Backend>> {
+    Ok(Box::new(X11::init(None)?))
+}
+
+#[cfg(all(not(feature = "x11"), not(feature = "wayland")))]
+fn select_backend() -> Result<Box<dyn Backend>> {
+    Err(crate::error::Error::Init(
+        "No display backend enabled".to_string(),
+    ))
 }

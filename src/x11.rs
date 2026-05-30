@@ -1,3 +1,4 @@
+use crate::backend::{Backend, BackendWindow};
 use crate::config::{Config, GlobalConfig};
 use crate::error::{Error, Result};
 use crate::notification::{Manager, Notification, NOTIFICATION_MESSAGE_TEMPLATE};
@@ -185,6 +186,64 @@ impl X11 {
     }
 }
 
+impl Backend for X11 {
+    fn create_window(&mut self, config: &GlobalConfig) -> Result<BackendWindow> {
+        Ok(BackendWindow::X11(Arc::new(Self::create_window(
+            self, config,
+        )?)))
+    }
+
+    fn show_window(&self, window: &BackendWindow) -> Result<()> {
+        match window {
+            BackendWindow::X11(window) => self.show_window(window),
+            #[allow(unreachable_patterns)]
+            _ => Err(Error::Init("invalid backend window".to_string())),
+        }
+    }
+
+    fn hide_window(&self, window: &BackendWindow) -> Result<()> {
+        match window {
+            BackendWindow::X11(window) => self.hide_window(window),
+            #[allow(unreachable_patterns)]
+            _ => Err(Error::Init("invalid backend window".to_string())),
+        }
+    }
+
+    fn handle_events(
+        &self,
+        window: Arc<BackendWindow>,
+        manager: Manager,
+        config: Arc<Config>,
+        on_press: Arc<dyn Fn(&Notification) + Send + Sync>,
+    ) -> Result<()> {
+        match window.as_ref() {
+            BackendWindow::X11(window) => {
+                self.handle_events(Arc::clone(window), manager, config, move |notification| {
+                    on_press(notification)
+                })
+            }
+            #[allow(unreachable_patterns)]
+            _ => Err(Error::Init("invalid backend window".to_string())),
+        }
+    }
+
+    fn render_message(
+        &self,
+        window: &BackendWindow,
+        notification: &Notification,
+        urgency_text: Option<String>,
+        unread_count: usize,
+    ) -> Result<String> {
+        match window {
+            BackendWindow::X11(window) => {
+                notification.render_message(&window.template, urgency_text, unread_count)
+            }
+            #[allow(unreachable_patterns)]
+            _ => Err(Error::Init("invalid backend window".to_string())),
+        }
+    }
+}
+
 /// Representation of a X11 window.
 pub struct X11Window {
     /// Window ID.
@@ -213,7 +272,7 @@ impl X11Window {
         let pango_context = pango_functions::create_context(&cairo_context);
         let layout = PangoLayout::new(&pango_context);
         let font_description = FontDescription::from_string(font);
-        pango_context.set_font_description(Some(&font_description));
+        pango_context.set_font_description(&font_description);
         let mut template = Tera::default();
         if let Err(e) =
             template.add_raw_template(NOTIFICATION_MESSAGE_TEMPLATE, raw_template.trim())

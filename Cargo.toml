@@ -28,13 +28,12 @@ async-trait = "0.1"
 futures-util = "0.3"
 x11rb = { version = "0.13.2", default-features = false, features = [
   "allow-unsafe-code",
-] }
+], optional = true }
 cairo-rs = { version = "0.22.0", default-features = false, features = [
   "use_glib",
-  "xcb",
-] }
-pangocairo = "0.22.0"
-pango = "0.22.6"
+], optional = true }
+pangocairo = { version = "0.22.0", optional = true }
+pango = { version = "0.22.6", optional = true }
 thiserror = "2.0.18"
 serde = { version = "1.0.228", features = ["derive"] }
 toml = "1.1.2"
@@ -50,6 +49,27 @@ serde_json = "1.0.150"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 humantime = "2.3.0"
+smithay-client-toolkit = { version = "0.20.0", optional = true }
+wayland-client = { version = "0.31.14", optional = true }
+wayland-protocols-wlr = { version = "0.3.9", optional = true }
+calloop = { version = "0.14.4", optional = true }
+calloop-wayland-source = { version = "0.4.1", optional = true }
+
+[features]
+default = ["x11", "wayland"]
+x11 = ["dep:cairo-rs", "cairo-rs/xcb", "dep:pango", "dep:pangocairo", "dep:x11rb"]
+wayland = [
+  "dep:cairo-rs",
+  "dep:pango",
+  "dep:pangocairo",
+  "dep:calloop",
+  "dep:calloop-wayland-source",
+  "dep:smithay-client-toolkit",
+  "dep:wayland-client",
+  "dep:wayland-protocols-wlr",
+]
+calloop = ["dep:calloop"]
+calloop-wayland-source = ["dep:calloop-wayland-source"]
 
 [profile.dev]
 opt-level = 0

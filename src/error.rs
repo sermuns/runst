@@ -14,16 +14,24 @@ pub enum Error {
     Zbus(#[from] zbus::Error),
     #[error("zbus fdo error: `{0}`")]
     ZbusFdo(#[from] zbus::fdo::Error),
+    #[cfg(feature = "x11")]
     #[error("X11 connect error: `{0}`")]
     X11Connect(#[from] x11rb::errors::ConnectError),
+    #[cfg(feature = "x11")]
     #[error("X11 connection error: `{0}`")]
     X11Connection(#[from] x11rb::errors::ConnectionError),
+    #[cfg(feature = "x11")]
     #[error("X11 ID error: `{0}`")]
     X11Id(#[from] x11rb::errors::ReplyOrIdError),
+    #[cfg(feature = "x11")]
     #[error("X11 error: `{0}`")]
     X11Other(String),
+    #[cfg(any(feature = "x11", feature = "wayland"))]
     #[error("Cairo error: `{0}`")]
     Cairo(#[from] cairo::Error),
+    #[cfg(feature = "wayland")]
+    #[error("Wayland error: `{0}`")]
+    Wayland(String),
     #[error("Receiver error: `{0}`")]
     Receiver(#[from] std::sync::mpsc::RecvError),
     #[error("TOML parsing error: `{0}`")]

@@ -5,7 +5,7 @@ use rust_embed::RustEmbed;
 use serde::de::{Deserializer, Error as SerdeError};
 use serde::ser::Serializer;
 use serde::{Deserialize, Serialize};
-use sscanf::scanf;
+use sscanf::sscanf;
 use std::env;
 use std::fs;
 use std::path::PathBuf;
@@ -133,8 +133,8 @@ pub struct Geometry {
 impl FromStr for Geometry {
     type Err = Error;
     fn from_str(s: &str) -> StdResult<Self, Self::Err> {
-        let (width, height, x, y) =
-            scanf!(s, "{u32}x{u32}+{u32}+{u32}").map_err(|e| Error::Scanf(e.to_string()))?;
+        let (width, height, x, y) = sscanf!(s, "{u32}x{u32}+{u32}+{u32}")
+            .ok_or_else(|| Error::Scanf("invalid geometry".to_string()))?;
         Ok(Self {
             width,
             height,
